@@ -6,7 +6,7 @@ from automation_server_client import AutomationServer, Workqueue, WorkItemError,
 from nexus_database_client import NexusDatabaseClient
 from kmd_nexus_client import NexusClientManager
 from odk_tools.tracking import Tracker
-from odk_tools.reporting import Reporter
+from odk_tools.reporting import report
 from kmd_nexus_client.tree_helpers import (
     filter_by_path, filter_by_predicate,    
 )
@@ -15,7 +15,6 @@ from datetime import datetime, timedelta
 nexus: NexusClientManager
 nexus_database_client: NexusDatabaseClient
 tracker: Tracker
-reporter: Reporter
 
 proces_navn = "Vedligehold af fysisk funktionsnedsættelse"
 logger = logging.getLogger(proces_navn)
@@ -47,7 +46,15 @@ async def process_workqueue(workqueue: Workqueue):
                 afslut_tidligere_indsats(indsats)                
                 tracker.track_task(proces_navn)
             except WorkItemError as e:
-                reporter.report(proces_navn, "Fejl", {"Cpr": data["cpr"], "Fejl": str(e)})
+                report(
+                        report_id="vedligehold_af_fysisk_funktionsnedsaettelse",
+                        group="Fejl",
+                        json={
+                            "Cpr": data["cpr"], 
+                            "Fejl": str(e)
+                        }
+                )
+                
                 logger.error(f"Error processing item: {data}. Error: {e}")
                 item.fail(str(e))
 
@@ -135,8 +142,7 @@ if __name__ == "__main__":
 
     nexus_credential = Credential.get_credential("KMD Nexus - produktion")
     nexus_database_credential = Credential.get_credential("KMD Nexus - database")    
-    tracking_credential = Credential.get_credential("Odense SQL Server")
-    reporting_credential = Credential.get_credential("RoboA")
+    tracking_credential = Credential.get_credential("Odense SQL Server")    
 
     nexus = NexusClientManager(
         client_id=nexus_credential.username,
@@ -155,11 +161,6 @@ if __name__ == "__main__":
     tracker = Tracker(
         username=tracking_credential.username, 
         password=tracking_credential.password
-    )
-
-    reporter = Reporter(
-        username=reporting_credential.username,
-        password=reporting_credential.password
     )
 
     logger = logging.getLogger(__name__)
