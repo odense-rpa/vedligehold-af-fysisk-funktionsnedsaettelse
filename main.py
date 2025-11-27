@@ -36,13 +36,19 @@ async def process_workqueue(workqueue: Workqueue):
         with item:
             data = item.data
             borger = nexus.borgere.hent_borger(data["cpr"]) 
-            indsats = hent_indsats(item_data=data)
+            indsats = hent_indsats(item_data=data)            
                 
             if not indsats or not borger:
-                return None
+                # Ingen Fysisk funktionsnedsættelse ophørende indsats at behandle
+                return
+            
+            vedvarende_indsats = hent_aktiv_vedvarende_indsats(borger)
  
             try:
-                opret_indsats(borger, indsats)
+                if vedvarende_indsats is None:
+                    # Aktiv vedvarende indsats findes ikke - opret ny
+                    opret_indsats(borger)
+
                 afslut_tidligere_indsats(indsats)                
                 tracker.track_task(proces_navn)
             except WorkItemError as e:
@@ -78,9 +84,14 @@ def hent_indsats(item_data: dict) -> dict|None:
         path_pattern="/*/*/Indsatser/basketGrantReference",
         active_pathways_only=False,
     )
+
+    indsatser = nexus.indsatser.filtrer_indsats_referencer(
+        indsats_referencer=filtrerede_indsats_referencer,
+        kun_aktive=True
+    )
     
     indsatser = filter_by_predicate(
-        roots=filtrerede_indsats_referencer,
+        roots=indsatser,
         predicate=lambda x: x["grantId"] == item_data["indsats_id"]
     )
 
@@ -91,7 +102,39 @@ def hent_indsats(item_data: dict) -> dict|None:
 
     return indsats
 
-def opret_indsats(borger: dict, indsats: dict):
+def hent_aktiv_vedvarende_indsats(borger: dict) -> dict|None:
+    pathway = nexus.borgere.hent_visning(borger=borger)
+
+    if pathway is None:
+        return None
+
+    indsats_referencer = nexus.borgere.hent_referencer(visning=pathway)            
+
+    filtrerede_indsats_referencer = filter_by_path(
+        indsats_referencer,
+        path_pattern="/ÆHF - Forløbsindplacering (Grundforløb)/Forløbsindplacering/Indsatser/basketGrantReference",
+        active_pathways_only=True,
+    )
+
+    indsatser = nexus.indsatser.filtrer_indsats_referencer(
+        indsats_referencer=filtrerede_indsats_referencer,
+        kun_aktive=True
+    )
+    
+    indsatser = filter_by_predicate(
+        roots=indsatser,
+        predicate=lambda x: x["name"] == "Fysisk funktionsnedsættelse vedvarende"
+    )
+
+    if not indsatser:
+        return None
+
+    indsats = nexus.indsatser.hent_indsats(indsatser[0])
+
+    return indsats
+
+
+def opret_indsats(borger: dict):
     i_dag = datetime.today().replace(
         hour=0, minute=0, second=0, microsecond=0
     )
